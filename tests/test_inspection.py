@@ -1,6 +1,7 @@
 import pytest
 
-from safe_import.inspection import inspect_import_context
+from safe_import import inspection
+from safe_import.inspection import FixtureDataError, inspect_import_context
 
 
 def test_exact_headers_context():
@@ -16,3 +17,19 @@ def test_exact_headers_context():
 def test_unknown_or_pathlike_id_rejected_before_file_access(fixture_id):
     with pytest.raises(KeyError):
         inspect_import_context(fixture_id)
+
+
+def test_missing_fixture_file_fails_visibly(monkeypatch, tmp_path):
+    monkeypatch.setitem(
+        inspection.FIXTURE_FILES, "exact_headers", tmp_path / "gone.csv"
+    )
+    with pytest.raises(FixtureDataError, match="missing or unreadable"):
+        inspect_import_context("exact_headers")
+
+
+def test_empty_fixture_file_fails_visibly(monkeypatch, tmp_path):
+    empty = tmp_path / "empty.csv"
+    empty.write_text("")
+    monkeypatch.setitem(inspection.FIXTURE_FILES, "exact_headers", empty)
+    with pytest.raises(FixtureDataError, match="empty"):
+        inspect_import_context("exact_headers")

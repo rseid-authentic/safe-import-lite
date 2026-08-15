@@ -35,6 +35,16 @@ def test_unparseable_event_rejected():
         audit_events("not json\n")
 
 
+def test_non_object_event_rejected():
+    with pytest.raises(RunnerError, match="non-object event"):
+        audit_events("null\n")
+
+
+def test_null_item_rejected():
+    with pytest.raises(RunnerError, match="disallowed item type"):
+        audit_events('{"type":"item.completed","item":null}\n')
+
+
 def test_valid_tool_request_parses():
     parsed = parse_last_message(
         '{"tool":"inspect_import_context","fixture_id":"exact_headers"}', ToolRequest
@@ -52,3 +62,12 @@ def test_malformed_tool_request_fails_visibly():
 def test_malformed_proposal_fails_visibly():
     with pytest.raises(RunnerError, match="MappingProposal validation"):
         parse_last_message('{"mappings":"not a list"}', MappingProposal)
+
+
+def test_extra_keys_rejected():
+    with pytest.raises(RunnerError, match="ToolRequest validation"):
+        parse_last_message(
+            '{"tool":"inspect_import_context","fixture_id":"exact_headers",'
+            '"path":"/etc/passwd"}',
+            ToolRequest,
+        )

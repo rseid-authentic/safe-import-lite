@@ -27,6 +27,8 @@ def test_preview_happy_path_with_stubbed_runner(monkeypatch):
     responses = iter(
         [
             ToolRequest(tool="inspect_import_context", fixture_id="exact_headers"),
+            # Contradictory model verdict on purpose: the gate passes these
+            # mappings, so the response must be reconciled to the gate.
             MappingProposal(
                 mappings=[
                     FieldMapping(
@@ -42,15 +44,13 @@ def test_preview_happy_path_with_stubbed_runner(monkeypatch):
                         reason="exact match",
                     ),
                 ],
-                unmapped_required_fields=[],
+                unmapped_required_fields=["email"],
                 warnings=[],
-                recommendation="ready_for_review",
+                recommendation="blocked",
             ),
         ]
     )
-    monkeypatch.setattr(
-        main, "run_structured", lambda prompt, model, record_to=None: next(responses)
-    )
+    monkeypatch.setattr(main, "run_structured", lambda prompt, model: next(responses))
     response = client.post("/imports/preview", json={"fixture_id": "exact_headers"})
     assert response.status_code == 200
     body = response.json()
@@ -58,10 +58,12 @@ def test_preview_happy_path_with_stubbed_runner(monkeypatch):
     assert body["fixture_id"] == "exact_headers"
     targets = {m["target_field"] for m in body["proposal"]["mappings"]}
     assert {"external_id", "email"} <= targets
+    assert body["proposal"]["recommendation"] == "ready_for_review"
+    assert body["proposal"]["unmapped_required_fields"] == []
 
 
 def test_runner_failure_is_visible(monkeypatch):
-    def boom(prompt, model, record_to=None):
+    def boom(prompt, model):
         raise RunnerError("codex exec failed with exit code 1: outage")
 
     monkeypatch.setattr(main, "run_structured", boom)

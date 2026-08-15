@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 
-from .inspection import inspect_import_context
+from .inspection import FixtureDataError, inspect_import_context
 from .models import FixtureId, MappingProposal, PreviewRequest, PreviewResponse, ToolRequest
 from .runner import RunnerError, run_structured
 from .validation import apply_gate
@@ -41,23 +41,25 @@ def _proposal_prompt(context: dict) -> str:
     )
 
 
-def run_preview(fixture_id: FixtureId) -> PreviewResponse:
-    tool_request = run_structured(
-        _tool_request_prompt(fixture_id),
-        ToolRequest,
-        record_to=RECORDED_DIR / f"{fixture_id}.tool_request.json",
-    )
+def run_preview(fixture_id: FixtureId, record: bool = False) -> PreviewResponse:
+    tool_request = run_structured(_tool_request_prompt(fixture_id), ToolRequest)
     if tool_request.fixture_id != fixture_id:
         raise RunnerError(
             f"model requested fixture {tool_request.fixture_id!r}, "
             f"expected {fixture_id!r}"
         )
     context = inspect_import_context(tool_request.fixture_id)
-    proposal = run_structured(
-        _proposal_prompt(context),
-        MappingProposal,
-        record_to=RECORDED_DIR / f"{fixture_id}.proposal.json",
-    )
+    proposal = run_structured(_proposal_prompt(context), MappingProposal)
+    if record:
+        # Only the eval path refreshes the replay corpus; serving traffic
+        # must not overwrite the committed known-good responses.
+        RECORDED_DIR.mkdir(exist_ok=True)
+        (RECORDED_DIR / f"{fixture_id}.tool_request.json").write_text(
+            tool_request.model_dump_json()
+        )
+        (RECORDED_DIR / f"{fixture_id}.proposal.json").write_text(
+            proposal.model_dump_json()
+        )
     decision, blocked_reason, gate_warnings = apply_gate(
         proposal, context["headers"], context["sample_rows"]
     )
@@ -65,8 +67,14 @@ def run_preview(fixture_id: FixtureId) -> PreviewResponse:
         return PreviewResponse(
             fixture_id=fixture_id, decision="blocked", blocked_reason=blocked_reason
         )
+    # The gate owns the verdict: overwrite the model's own recommendation and
+    # unmapped list so the response can't carry a contradictory verdict.
     merged = proposal.model_copy(
-        update={"warnings": proposal.warnings + gate_warnings}
+        update={
+            "warnings": proposal.warnings + gate_warnings,
+            "recommendation": "ready_for_review",
+            "unmapped_required_fields": [],
+        }
     )
     return PreviewResponse(fixture_id=fixture_id, decision="proposal", proposal=merged)
 
@@ -82,3 +90,5 @@ def preview(request: PreviewRequest) -> PreviewResponse:
         return run_preview(request.fixture_id)
     except RunnerError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except FixtureDataError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

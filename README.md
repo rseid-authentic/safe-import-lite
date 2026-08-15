@@ -37,17 +37,20 @@ missing_email   blocked   no credible email column
 - `safe_import/runner.py` — `codex exec` adapter, strict output schema, fail-closed JSONL audit
 - `safe_import/eval.py` — live three-case summary
 - `fixtures/` — three approved synthetic CSVs
-- `recorded/` — raw structured responses from successful live calls, retained so a Codex outage
-  can be replayed through the same Pydantic + gate path (labeled as recorded)
+- `recorded/` — structured responses from successful live eval runs, retained so a Codex outage
+  can be replayed through the same Pydantic + gate path (labeled as recorded). Only
+  `safe_import.eval` refreshes these; serving traffic never touches them.
 
 ## Codex runner policy
 
 Each model call runs `codex exec --ephemeral --ignore-user-config --ignore-rules --sandbox
 read-only --skip-git-repo-check --model gpt-5.6-luna` with low reasoning effort, `-C` pointed at
 an empty temp dir, prompt on stdin, and `--output-schema` generated from the Pydantic model
-(with `additionalProperties: false` added — the structured-output endpoint requires it and
-Pydantic does not emit it). Prompts never contain a filesystem path; call 1 receives only the
-opaque fixture ID. JSONL stdout is appended to `codex_audit.jsonl` and audited fail-closed:
+(the contracts declare `extra="forbid"`, which both rejects extra keys in responses and makes
+Pydantic emit the `additionalProperties: false` the structured-output endpoint requires).
+Prompts never contain a filesystem path; call 1 receives only the opaque fixture ID. JSONL
+stdout — including partial output from timed-out runs — is appended to `codex_audit.jsonl`.
+A non-zero exit reports the exit code and stderr; a clean exit is then audited fail-closed:
 any event type outside the observed lifecycle set, or any item type other than
 `agent_message`/`reasoning`, rejects the run.
 
@@ -62,5 +65,7 @@ any event type outside the observed lifecycle set, or any item type other than
   surfaces as one visible 502 with the reason.
 - Email credibility is a shape regex over at most five non-empty samples, not deliverability or
   full RFC validation.
+- The preview endpoint is synchronous and each request holds a threadpool worker for up to two
+  sequential codex calls; this demo is not built for concurrent load.
 - The `recorded/` replay fallback was never needed; Codex stayed available. There is no replay
   flag — replaying is a manual exercise through `parse_last_message` + the gate.

@@ -1,3 +1,4 @@
+from .inspection import FixtureDataError
 from .main import run_preview
 from .runner import RunnerError
 
@@ -9,8 +10,8 @@ def main() -> int:
     failures = 0
     for fixture_id in CASES:
         try:
-            response = run_preview(fixture_id)
-        except RunnerError as exc:
+            response = run_preview(fixture_id, record=True)
+        except (RunnerError, FixtureDataError) as exc:
             print(f"{fixture_id:<16}{'error':<10}{exc}")
             failures += 1
             continue
