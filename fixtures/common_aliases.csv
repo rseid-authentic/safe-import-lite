@@ -1,0 +1,6 @@
+contact_id,email_address,fname,lname,phone,signup_date
+2001,frank@example.com,Frank,Foster,555-0201,2026-01-08
+2002,gina@example.com,Gina,Garcia,555-0202,2026-01-19
+2003,henry@example.com,Henry,Hall,555-0203,2026-02-06
+2004,iris@example.com,Iris,Ito,555-0204,2026-02-22
+2005,jack@example.com,Jack,Jones,555-0205,2026-03-10
