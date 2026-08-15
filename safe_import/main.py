@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 
@@ -9,8 +8,6 @@ from .runner import RunnerError, run_structured
 from .validation import apply_gate
 
 app = FastAPI(title="Safe Import Lite")
-
-RECORDED_DIR = Path(__file__).resolve().parent.parent / "recorded"
 
 NO_TOOLS = (
     "Do not use any built-in tools: do not run commands, do not read or write "
@@ -41,7 +38,9 @@ def _proposal_prompt(context: dict) -> str:
     )
 
 
-def run_preview(fixture_id: FixtureId, record: bool = False) -> PreviewResponse:
+def run_pipeline(
+    fixture_id: FixtureId,
+) -> tuple[ToolRequest, MappingProposal, PreviewResponse]:
     tool_request = run_structured(_tool_request_prompt(fixture_id), ToolRequest)
     if tool_request.fixture_id != fixture_id:
         raise RunnerError(
@@ -50,23 +49,14 @@ def run_preview(fixture_id: FixtureId, record: bool = False) -> PreviewResponse:
         )
     context = inspect_import_context(tool_request.fixture_id)
     proposal = run_structured(_proposal_prompt(context), MappingProposal)
-    if record:
-        # Only the eval path refreshes the replay corpus; serving traffic
-        # must not overwrite the committed known-good responses.
-        RECORDED_DIR.mkdir(exist_ok=True)
-        (RECORDED_DIR / f"{fixture_id}.tool_request.json").write_text(
-            tool_request.model_dump_json()
-        )
-        (RECORDED_DIR / f"{fixture_id}.proposal.json").write_text(
-            proposal.model_dump_json()
-        )
     decision, blocked_reason, gate_warnings = apply_gate(
         proposal, context["headers"], context["sample_rows"]
     )
     if decision == "blocked":
-        return PreviewResponse(
+        response = PreviewResponse(
             fixture_id=fixture_id, decision="blocked", blocked_reason=blocked_reason
         )
+        return tool_request, proposal, response
     # The gate owns the verdict: overwrite the model's own recommendation and
     # unmapped list so the response can't carry a contradictory verdict.
     merged = proposal.model_copy(
@@ -76,7 +66,14 @@ def run_preview(fixture_id: FixtureId, record: bool = False) -> PreviewResponse:
             "unmapped_required_fields": [],
         }
     )
-    return PreviewResponse(fixture_id=fixture_id, decision="proposal", proposal=merged)
+    response = PreviewResponse(
+        fixture_id=fixture_id, decision="proposal", proposal=merged
+    )
+    return tool_request, proposal, response
+
+
+def run_preview(fixture_id: FixtureId) -> PreviewResponse:
+    return run_pipeline(fixture_id)[2]
 
 
 @app.get("/health")

@@ -16,7 +16,8 @@ Codex call 2 returns `MappingProposal` → Pydantic validates → deterministic 
 ```bash
 uv run uvicorn safe_import.main:app --reload   # serve; interactive docs at /docs
 uv run pytest -q                               # unit tests, no model calls
-uv run python -m safe_import.eval              # live three-case evaluation (~45s)
+uv run python -m safe_import.eval              # live three-case evaluation (~45s);
+                                               # exits non-zero on any unexpected decision
 ```
 
 Expected eval output:
@@ -39,7 +40,8 @@ missing_email   blocked   no credible email column
 - `fixtures/` — three approved synthetic CSVs
 - `recorded/` — structured responses from successful live eval runs, retained so a Codex outage
   can be replayed through the same Pydantic + gate path (labeled as recorded). Only
-  `safe_import.eval` refreshes these; serving traffic never touches them.
+  `safe_import.eval` refreshes these, and only for a case whose decision matched the expected
+  outcome; serving traffic never touches them.
 
 ## Codex runner policy
 

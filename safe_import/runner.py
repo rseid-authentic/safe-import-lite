@@ -101,8 +101,11 @@ def run_structured(prompt: str, response_model: type[M]) -> M:
             )
         except subprocess.TimeoutExpired as exc:
             # A run that hangs is exactly the run worth inspecting: keep and
-            # audit whatever it wrote before the kill.
-            partial = exc.stdout or ""
+            # audit whatever it wrote before the kill. TimeoutExpired carries
+            # raw bytes even under text=True.
+            partial = exc.stdout or b""
+            if isinstance(partial, bytes):
+                partial = partial.decode("utf-8", errors="replace")
             _append_audit(partial)
             audit_events(partial)
             raise RunnerError(
