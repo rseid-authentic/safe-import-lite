@@ -32,6 +32,25 @@ ALLOWED_ITEM_TYPES = {"agent_message", "reasoning"}
 M = TypeVar("M", bound=BaseModel)
 
 
+def strict_schema(response_model: type[BaseModel]) -> dict:
+    """The structured-output endpoint requires additionalProperties: false on
+    every object node; Pydantic does not emit it."""
+    schema = response_model.model_json_schema()
+
+    def walk(node) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                node.setdefault("additionalProperties", False)
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(schema)
+    return schema
+
+
 def audit_events(stdout: str) -> None:
     for line in stdout.splitlines():
         line = line.strip()
@@ -71,7 +90,7 @@ def run_structured(
         workdir = tmp / "work"
         workdir.mkdir()
         schema_file = tmp / "schema.json"
-        schema_file.write_text(json.dumps(response_model.model_json_schema()))
+        schema_file.write_text(json.dumps(strict_schema(response_model)))
         last_message_file = tmp / "last.txt"
         command = [
             "codex", "exec",
